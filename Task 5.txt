@@ -1,0 +1,122 @@
+Task 5:
+Apply the artistic style of one image (e.g., a famous painting) to the content of another image using neural style transfer
+
+
+Solution:
+ What is Neural Style Transfer?
+NST uses a pre-trained convolutional neural network (CNN) like VGG-19 to:
+
+Extract content features from the content image.
+
+Extract style features from the style image.
+
+Generate a new image that minimizes a combined loss (content + style).
+
+⚙️ Neural Style Transfer with PyTorch
+✅ Step 1: Install Required Libraries
+bash
+Copy
+Edit
+pip install torch torchvision pillow
+🖼️ Step 2: Load and Preprocess Images
+python
+Copy
+Edit
+from PIL import Image
+import torch
+import torchvision.transforms as transforms
+import torchvision.models as models
+import matplotlib.pyplot as plt
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def load_image(path, max_size=512):
+    image = Image.open(path).convert('RGB')
+    size = min(max(image.size), max_size)
+    transform = transforms.Compose([
+        transforms.Resize(size),
+        transforms.ToTensor()
+    ])
+    image = transform(image).unsqueeze(0)  # Add batch dimension
+    return image.to(device)
+
+content = load_image('your_content.jpg')
+style = load_image('your_style.jpg')
+🧠 Step 3: Use VGG-19 for Feature Extraction
+python
+Copy
+Edit
+vgg = models.vgg19(pretrained=True).features.to(device).eval()
+
+# Freeze model
+for param in vgg.parameters():
+    param.requires_grad = False
+🧪 Step 4: Define Style and Content Loss Functions
+python
+Copy
+Edit
+def gram_matrix(tensor):
+    _, c, h, w = tensor.size()
+    features = tensor.view(c, h * w)
+    G = torch.mm(features, features.t())
+    return G / (c * h * w)
+
+content_layers = ['conv_4']
+style_layers = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
+
+def get_features(image, model, layers):
+    features = {}
+    x = image
+    i = 0
+    for layer in model.children():
+        x = layer(x)
+        if isinstance(layer, torch.nn.Conv2d):
+            i += 1
+            name = f'conv_{i}'
+            if name in layers:
+                features[name] = x
+    return features
+🧑‍🎨 Step 5: Initialize Target and Optimize
+python
+Copy
+Edit
+target = content.clone().requires_grad_(True).to(device)
+optimizer = torch.optim.Adam([target], lr=0.003)
+
+style_weights = {layer: 1.0 for layer in style_layers}
+content_weight = 1e4
+style_weight = 1e2
+
+for step in range(300):
+    target_features = get_features(target, vgg, style_layers + content_layers)
+    content_features = get_features(content, vgg, content_layers)
+    style_features = get_features(style, vgg, style_layers)
+
+    content_loss = torch.mean((target_features['conv_4'] - content_features['conv_4'])**2)
+
+    style_loss = 0
+    for layer in style_layers:
+        target_gram = gram_matrix(target_features[layer])
+        style_gram = gram_matrix(style_features[layer])
+        style_loss += style_weights[layer] * torch.mean((target_gram - style_gram)**2)
+
+    total_loss = content_weight * content_loss + style_weight * style_loss
+
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
+
+    if step % 50 == 0:
+        print(f"Step {step}, Total Loss: {total_loss.item():.2f}")
+💾 Step 6: Save and View Result
+python
+Copy
+Edit
+def im_convert(tensor):
+    image = tensor.clone().detach().squeeze(0)
+    image = image.cpu().clamp(0, 1)
+    return transforms.ToPILImage()(image)
+
+result = im_convert(target)
+result.save("stylized_output.jpg")
+result.show()
